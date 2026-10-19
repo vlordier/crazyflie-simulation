@@ -4,6 +4,7 @@
 
 #include "crazysim_plugin.h"
 #include <cerrno>
+#include <cstdlib>
 #include <future>
 #include <poll.h>
 
@@ -35,6 +36,8 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	odom_sub_topic_(kDefaultOdomTopic),
 	cf_prefix(kDefaultCfPrefix),
 	isPluginOn(true){
+	const char* traceMotor = std::getenv("NCS_CRAZYSIM_TRACE_MOTOR");
+	traceMotorEnabled_ = traceMotor != nullptr && std::string(traceMotor) == "1";
 }
 
 GzCrazyflieInterface::~GzCrazyflieInterface() {
@@ -375,14 +378,27 @@ void GzCrazyflieInterface::initializeSubsAndPub() {
 
 void GzCrazyflieInterface::handleMotorsMessage(const uint8_t* data) {
 	crtpMotorsDataResponse* motorsData = (crtpMotorsDataResponse *) data;
+	const float m1 = PWM2OMEGA(motorsData->m1);
+	const float m2 = PWM2OMEGA(motorsData->m2);
+	const float m3 = PWM2OMEGA(motorsData->m3);
+	const float m4 = PWM2OMEGA(motorsData->m4);
 	{
 		std::unique_lock<std::mutex> mlock(motors_mutex);
-		m_motor_command_.m1 = PWM2OMEGA(motorsData->m1);
-		m_motor_command_.m2 = PWM2OMEGA(motorsData->m2);
-		m_motor_command_.m3 = PWM2OMEGA(motorsData->m3);
-		m_motor_command_.m4 = PWM2OMEGA(motorsData->m4);
+		m_motor_command_.m1 = m1;
+		m_motor_command_.m2 = m2;
+		m_motor_command_.m3 = m3;
+		m_motor_command_.m4 = m4;
 	}
 
+	if (traceMotorEnabled_ &&
+	    (motorsData->m1 != 0 || motorsData->m2 != 0 || motorsData->m3 != 0 ||
+	     motorsData->m4 != 0) &&
+	    !motorTraceLogged_.exchange(true, std::memory_order_relaxed)) {
+		std::cerr << "TRACE_MOTOR_NONZERO NCS_SITL_ACTUATOR source=firmware"
+		          << " ratio=" << motorsData->m1 << ',' << motorsData->m2 << ','
+		          << motorsData->m3 << ',' << motorsData->m4 << " omega_rad_s="
+		          << m1 << ',' << m2 << ',' << m3 << ',' << m4 << std::endl;
+	}
 }
 
 void GzCrazyflieInterface::recvCfLib(uint8_t* data , int len) {

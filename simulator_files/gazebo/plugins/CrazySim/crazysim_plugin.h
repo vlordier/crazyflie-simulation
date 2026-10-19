@@ -135,6 +135,8 @@ namespace crazyflie_interface
 			socklen_t addrlen_cfLib;
 			std::atomic<bool> cfLibAddrInitialized_;
 			std::mutex firmware_peer_mutex_;
+			bool traceMotorEnabled_{false};
+			std::atomic<bool> motorTraceLogged_{false};
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};
