@@ -16,3 +16,12 @@ Check out the [Bitcraze crazyflie-simulation documentation](https://www.bitcraze
 ## Contribute
 
 Go to the [contribute page](https://www.bitcraze.io/development/contribute/) on our website to learn more.
+
+### Matching the Gazebo IMU rate to SITL firmware
+
+The Gazebo launch scripts read `CRAZYSIM_RATE_MAIN_LOOP` from the SITL build's
+`CMakeCache.txt` and use that value for the generated model IMU rate. This
+keeps the sensor cadence aligned when the firmware is built at 500 Hz; builds
+without that cache setting retain the 1000 Hz default. Set
+`NCS_CRAZYSIM_IMU_RATE=500` or `1000` only to override the detected rate
+deliberately. The generator rejects rates other than those supported values.

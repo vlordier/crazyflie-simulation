@@ -25,17 +25,16 @@ function spawn_model() {
 
 	pushd "$working_dir" &>/dev/null
 
-	set --
-	set -- ${@} ${src_path}/tools/crazyflie-simulation/simulator_files/gazebo/launch/jinja_gen.py
-	set -- ${@} ${src_path}/tools/crazyflie-simulation/simulator_files/gazebo/models/${MODEL}/model.sdf.jinja
-	set -- ${@} ${src_path}/tools/crazyflie-simulation/simulator_files/gazebo
-	set -- ${@} --cffirm_udp_port $((19950+${N}))
-	set -- ${@} --cflib_udp_port $((19850+${N}))
-	set -- ${@} --cf_id $((${N}))
-	set -- ${@} --cf_name cf
-	set -- ${@} --output-file /tmp/${MODEL}_${N}.sdf
-
-	python3 ${@}
+	local gazebo_dir="${src_path}/tools/crazyflie-simulation/simulator_files/gazebo"
+	python3 "${gazebo_dir}/launch/jinja_gen.py" \
+		"${gazebo_dir}/models/${MODEL}/model.sdf.jinja" \
+		"${gazebo_dir}" \
+		--cffirm_udp_port "$((19950 + N))" \
+		--cflib_udp_port "$((19850 + N))" \
+		--cf_id "$N" \
+		--cf_name cf \
+		--imu-rate "$(resolve_sitl_imu_rate "$build_path")" \
+		--output-file "/tmp/${MODEL}_${N}.sdf"
 
 	echo "Spawning ${MODEL}_${N} at ${X} ${Y}"
 
@@ -72,6 +71,7 @@ vehicle_model=${VEHICLE_MODEL:="crazyflie"}
 export CF2_SIM_MODEL=gz_${vehicle_model}
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+source "${SCRIPT_DIR}/imu_rate.sh"
 src_path="$SCRIPT_DIR/../../../../.."
 
 build_path=${src_path}/sitl_make/build

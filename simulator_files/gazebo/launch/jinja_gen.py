@@ -39,6 +39,8 @@ if __name__ == "__main__":
     parser.add_argument('--cffirm_udp_port', default=19950, help="Crazyflie Firmware UDP port")
     parser.add_argument('--cflib_udp_port', default=19850, help="Crazyflie python library UDP port")
     parser.add_argument('--cf_name', default="cf", help="Serial device for FMU")
+    parser.add_argument('--imu-rate', type=int, choices=(500, 1000), default=1000,
+                        help="Gazebo IMU update rate in Hz (match CRAZYSIM_RATE_MAIN_LOOP)")
     parser.add_argument('--output-file', help="sdf output file")
     parser.add_argument('--stdout', action='store_true', default=False, help="dump to stdout instead of file")
     # parser.add_argument('--override_parameters_json_path', default='', help="json file with variables to override jinja parameters")
@@ -50,7 +52,8 @@ if __name__ == "__main__":
          'cf_id': args.cf_id, \
          'cffirm_udp_port': args.cffirm_udp_port, \
          'cflib_udp_port': args.cflib_udp_port, \
-         'cf_name': args.cf_name}
+         'cf_name': args.cf_name, \
+         'imu_rate': args.imu_rate}
 
     # override_params_path = args.override_parameters_json_path
     # if not override_params_path:
