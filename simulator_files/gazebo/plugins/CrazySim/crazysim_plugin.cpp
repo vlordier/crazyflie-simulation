@@ -246,16 +246,25 @@ void GzCrazyflieInterface::recvCfFirmwareThread() {
 		if (len <= 0 )
 			continue;
 		if (buf[0] == 0xF3 && len == 1){
+			const uint8_t response = 0xF3;
+			bool responseSent = false;
 			{
 				std::lock_guard<std::mutex> lock(firmware_peer_mutex_);
+				socketInit.store(false, std::memory_order_release);
 				remaddr = remaddr_rcv;
 				addrlen = addrlen_rcv;
-				socketInit.store(true, std::memory_order_release);
+				const int transferred = sendto(
+					fd, &response, sizeof(response), 0,
+					(struct sockaddr *) &remaddr, addrlen);
+				responseSent = transferred == static_cast<int>(sizeof(response));
+				if (responseSent)
+					socketInit.store(true, std::memory_order_release);
 			}
-			gzmsg << "Received firmware handshake message..." << std::endl;
-			// Send response to SITL instance
-			uint8_t data[1] = {0xF3};
-			sendCfFirmware(data , sizeof(data));
+			if (responseSent)
+				gzmsg << "Accepted firmware handshake message..." << std::endl;
+			else
+				gzerr << "Failed to reply to firmware handshake: "
+				      << strerror(errno) << std::endl;
 		}
 		else if (socketInit && (crtp(buf[0]) == crtp(0x09,0)) && (len == 9)) // Motor command message
 			handleMotorsMessage(&buf[0]);
