@@ -33,10 +33,10 @@ int main() {
 
   assert(PWM2OMEGA(6999, kStandardMotorConstant,
                    kStandardMaxRotVelocity) == 0.0f);
-  assert(PWM2OMEGA(65535, kStandardMotorConstant,
-                   kStandardMaxRotVelocity) == kStandardMaxRotVelocity);
-  assert(PWM2OMEGA(65535, kUpgradeMotorConstant,
-                   kUpgradeMaxRotVelocity) == kUpgradeMaxRotVelocity);
+  near(PWM2OMEGA(65535, kStandardMotorConstant, kStandardMaxRotVelocity),
+       kStandardMaxRotVelocity);
+  near(PWM2OMEGA(65535, kUpgradeMotorConstant, kUpgradeMaxRotVelocity),
+       std::sqrt(kHoverThrustPerMotor / kUpgradeMotorConstant));
   assert(PWM2OMEGA(pwm, 0.0f, kStandardMaxRotVelocity) == 0.0f);
   assert(PWM2OMEGA(pwm, kStandardMotorConstant,
                    std::numeric_limits<float>::infinity()) == 0.0f);
