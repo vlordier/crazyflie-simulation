@@ -81,6 +81,16 @@ void GzCrazyflieInterface::Configure(const gz::sim::Entity &_entity,
 	magnetic_field_sub_topic_ = sdfClone->Get<std::string>("magSubTopic");
 	barometer_sub_topic_ = sdfClone->Get<std::string>("baroSubTopic");
 	cf_id_ = sdfClone->Get<int>("cfId");
+	if (sdfClone->HasElement("motorConstant"))
+		motor_constant_ = static_cast<float>(sdfClone->Get<double>("motorConstant"));
+	if (sdfClone->HasElement("maxRotVelocity"))
+		max_rot_velocity_ = static_cast<float>(sdfClone->Get<double>("maxRotVelocity"));
+	if (!std::isfinite(motor_constant_) || motor_constant_ <= 0.0f ||
+		!std::isfinite(max_rot_velocity_) || max_rot_velocity_ <= 0.0f) {
+		gzerr << "Crazyflie motorConstant and maxRotVelocity must be finite and positive"
+			  << std::endl;
+		return;
+	}
 
 	// ---------- Setup socket for Crazyflie firmware -----------
 	std::string dest_addr_cfFirm = cffirm_addr;
@@ -384,10 +394,10 @@ void GzCrazyflieInterface::initializeSubsAndPub() {
 
 void GzCrazyflieInterface::handleMotorsMessage(const uint8_t* data) {
 	crtpMotorsDataResponse* motorsData = (crtpMotorsDataResponse *) data;
-	const float m1 = PWM2OMEGA(motorsData->m1);
-	const float m2 = PWM2OMEGA(motorsData->m2);
-	const float m3 = PWM2OMEGA(motorsData->m3);
-	const float m4 = PWM2OMEGA(motorsData->m4);
+	const float m1 = PWM2OMEGA(motorsData->m1, motor_constant_, max_rot_velocity_);
+	const float m2 = PWM2OMEGA(motorsData->m2, motor_constant_, max_rot_velocity_);
+	const float m3 = PWM2OMEGA(motorsData->m3, motor_constant_, max_rot_velocity_);
+	const float m4 = PWM2OMEGA(motorsData->m4, motor_constant_, max_rot_velocity_);
 	{
 		std::unique_lock<std::mutex> mlock(motors_mutex);
 		m_motor_command_.m1 = m1;

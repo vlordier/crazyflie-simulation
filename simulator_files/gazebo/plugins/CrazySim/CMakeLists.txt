@@ -4,6 +4,8 @@ cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 
 project(crazysim_gz VERSION 1.1.0)
 
+include(CTest)
+
 find_package(gz-plugin REQUIRED COMPONENTS register NAMES gz-plugin2)
 set(GZ_PLUGIN_VER ${gz-plugin_VERSION_MAJOR})
 
@@ -47,6 +49,12 @@ target_link_libraries(gz_crazysim_plugin
     gz-msgs${GZ_MSGS_VER}::gz-msgs${GZ_MSGS_VER}
     gz-transport${GZ_TRANSPORT_VER}::core
 )
+
+if(BUILD_TESTING)
+  add_executable(test_motor_mapping test_motor_mapping.cpp)
+  set_property(TARGET test_motor_mapping PROPERTY CXX_STANDARD 17)
+  add_test(NAME motor_mapping COMMAND test_motor_mapping)
+endif()
 #==============================================================================================//
 
 include(GNUInstallDirs)

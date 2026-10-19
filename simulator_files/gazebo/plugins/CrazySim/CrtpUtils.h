@@ -26,14 +26,21 @@
 // OLD linear model (commented out):
 // #define PWM2OMEGA(pwm) ((pwm) < (1000) ? (0) : ((0.04076521f*pwm) + 380.8359f))
 
-// NEW: Matches Crazyflow's linear thrust model
+// Convert Crazyflie motor PWM to the rotor speed expected by the selected
+// Gazebo model. motorConstant and maxRotVelocity must match that model's
+// MulticopterMotorModel parameters.
 // thrust_desired = (pwm / 65535) * 0.18 N
 // omega = sqrt(thrust_desired / motorConstant)
-static inline float PWM2OMEGA(uint16_t pwm) {
+static inline float PWM2OMEGA(uint16_t pwm, float motorConstant,
+                              float maxRotVelocity) {
     if (pwm < 7000) return 0.0f;
+    if (!std::isfinite(motorConstant) || motorConstant <= 0.0f ||
+        !std::isfinite(maxRotVelocity) || maxRotVelocity <= 0.0f) {
+        return 0.0f;
+    }
     float thrust_desired = (pwm / 65535.0f) * 0.18f;
-    float omega = std::sqrt(thrust_desired / 2.3375e-8f);
-    return std::fmin(omega, 2797.0f);  // Cap at maxRotVelocity
+    float omega = std::sqrt(thrust_desired / motorConstant);
+    return std::fmin(omega, maxRotVelocity);
 }
 
 // Sensor type (first byte of crtp packet)

@@ -91,6 +91,8 @@ namespace crazyflie_interface
 			std::string cffirm_port;
 			std::string cflib_addr;
 			std::string cflib_port;
+			float motor_constant_{2.3375e-8f};
+			float max_rot_velocity_{2797.0f};
 			// int cflib_latency_ms; // simulated radio delay
 
 

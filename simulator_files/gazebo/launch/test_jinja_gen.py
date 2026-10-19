@@ -45,6 +45,30 @@ class ImuRateGenerationTest(unittest.TestCase):
         assert imu is not None
         return float(imu.text or "nan")
 
+    def motor_model_parameters(self, sdf: str) -> tuple[float, float]:
+        root = ET.fromstring(sdf)
+        rotor_plugins = root.findall(
+            ".//plugin[@name='gz::sim::systems::MulticopterMotorModel']"
+        )
+        interface = root.find(
+            ".//plugin[@name='crazyflie_interface::GzCrazyflieInterface']"
+        )
+        self.assertEqual(len(rotor_plugins), 4)
+        self.assertIsNotNone(interface)
+        assert interface is not None
+        rotor_parameters = {
+            (
+                float(plugin.findtext("motorConstant", "nan")),
+                float(plugin.findtext("maxRotVelocity", "nan")),
+            )
+            for plugin in rotor_plugins
+        }
+        self.assertEqual(len(rotor_parameters), 1)
+        return (
+            float(interface.findtext("motorConstant", "nan")),
+            float(interface.findtext("maxRotVelocity", "nan")),
+        )
+
     def test_both_models_default_to_one_kilohertz(self) -> None:
         for model in ("crazyflie", "crazyflie_thrust_upgrade"):
             with self.subTest(model=model):
@@ -56,6 +80,29 @@ class ImuRateGenerationTest(unittest.TestCase):
                 self.assertEqual(
                     self.imu_rate(self.render(model, "--imu-rate", "500")), 500.0
                 )
+
+    def test_pwm_converter_uses_the_selected_gazebo_motor_model(self) -> None:
+        expected_parameters = {
+            "crazyflie": (1.7965e-8, 3052.0),
+            "crazyflie_thrust_upgrade": (2.3375e-8, 2797.0),
+        }
+        for model, expected in expected_parameters.items():
+            with self.subTest(model=model):
+                sdf = self.render(model)
+                root = ET.fromstring(sdf)
+                rotor = root.find(
+                    ".//plugin[@name='gz::sim::systems::MulticopterMotorModel']"
+                )
+                self.assertIsNotNone(rotor)
+                assert rotor is not None
+                self.assertEqual(
+                    self.motor_model_parameters(sdf),
+                    (
+                        float(rotor.findtext("motorConstant", "nan")),
+                        float(rotor.findtext("maxRotVelocity", "nan")),
+                    ),
+                )
+                self.assertEqual(self.motor_model_parameters(sdf), expected)
 
     def test_rejects_rates_not_supported_by_the_sitl_firmware(self) -> None:
         with tempfile.TemporaryDirectory():
