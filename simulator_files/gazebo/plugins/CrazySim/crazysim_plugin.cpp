@@ -214,7 +214,16 @@ void GzCrazyflieInterface::OdomCallback(const gz::msgs::Odometry& odom_msg) {
 }
 
 bool GzCrazyflieInterface::sendCfFirmware(const uint8_t* data , uint32_t length) {	
-	int transferred = sendto(fd, data, length, 0, (struct sockaddr *) &(remaddr), addrlen);
+	struct sockaddr_in peer;
+	socklen_t peerLength;
+	{
+		std::lock_guard<std::mutex> lock(firmware_peer_mutex_);
+		if (!socketInit.load(std::memory_order_acquire))
+			return false;
+		peer = remaddr;
+		peerLength = addrlen;
+	}
+	int transferred = sendto(fd, data, length, 0, (struct sockaddr *) &peer, peerLength);
 	if (transferred <= 0)
 		throw std::runtime_error(strerror(errno));
     return true;
@@ -236,11 +245,14 @@ void GzCrazyflieInterface::recvCfFirmwareThread() {
 		int len = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *) &remaddr_rcv, &addrlen_rcv);
 		if (len <= 0 )
 			continue;
-		if (!socketInit && buf[0] == 0xF3 && len == 1){
+		if (buf[0] == 0xF3 && len == 1){
+			{
+				std::lock_guard<std::mutex> lock(firmware_peer_mutex_);
+				remaddr = remaddr_rcv;
+				addrlen = addrlen_rcv;
+				socketInit.store(true, std::memory_order_release);
+			}
 			gzmsg << "Received firmware handshake message..." << std::endl;
-			remaddr = remaddr_rcv;
-			addrlen = addrlen_rcv;
-			socketInit = true;
 			// Send response to SITL instance
 			uint8_t data[1] = {0xF3};
 			sendCfFirmware(data , sizeof(data));

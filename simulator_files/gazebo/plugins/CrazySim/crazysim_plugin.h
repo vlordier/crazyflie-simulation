@@ -134,6 +134,7 @@ namespace crazyflie_interface
 			struct sockaddr_in remaddr_cfLib;
 			socklen_t addrlen_cfLib;
 			std::atomic<bool> cfLibAddrInitialized_;
+			std::mutex firmware_peer_mutex_;
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};
