@@ -23,24 +23,41 @@
 
 #define GRAVITY_MAGNITUDE_CF (9.81) // we use the magnitude such that the sign/direction is explicit in calculations
 
+// Must match power_distribution_sitl.c's PWM-to-thrust calibration.
+static constexpr float kPwmToThrustA = 0.091492681f;
+static constexpr float kPwmToThrustB = 0.067673604f;
+
 // OLD linear model (commented out):
 // #define PWM2OMEGA(pwm) ((pwm) < (1000) ? (0) : ((0.04076521f*pwm) + 380.8359f))
 
-// Convert Crazyflie motor PWM to the rotor speed expected by the selected
-// Gazebo model. motorConstant and maxRotVelocity must match that model's
-// MulticopterMotorModel parameters.
-// thrust_desired = (pwm / 65535) * 0.18 N
-// omega = sqrt(thrust_desired / motorConstant)
+// Convert the firmware motor ratio through the same quadratic force curve as
+// power_distribution_sitl.c, then convert thrust to rotor speed using the
+// selected Gazebo model's motorConstant.
 static inline float PWM2OMEGA(uint16_t pwm, float motorConstant,
-                              float maxRotVelocity) {
-    if (pwm < 7000) return 0.0f;
-    if (!std::isfinite(motorConstant) || motorConstant <= 0.0f ||
-        !std::isfinite(maxRotVelocity) || maxRotVelocity <= 0.0f) {
+                              float maxRotVelocity, float pwmToThrustA,
+                              float pwmToThrustB) {
+    if (pwm < 7000 || !std::isfinite(motorConstant) || motorConstant <= 0.0f ||
+        !std::isfinite(maxRotVelocity) || maxRotVelocity <= 0.0f ||
+        !std::isfinite(pwmToThrustA) || pwmToThrustA < 0.0f ||
+        !std::isfinite(pwmToThrustB) || pwmToThrustB < 0.0f ||
+        (pwmToThrustA == 0.0f && pwmToThrustB == 0.0f)) {
         return 0.0f;
     }
-    float thrust_desired = (pwm / 65535.0f) * 0.18f;
-    float omega = std::sqrt(thrust_desired / motorConstant);
+
+    const float normalizedPwm = pwm / 65535.0f;
+    const float thrustDesired = pwmToThrustA * normalizedPwm * normalizedPwm +
+                                pwmToThrustB * normalizedPwm;
+    if (thrustDesired <= 0.0f) return 0.0f;
+
+    const float omega = std::sqrt(thrustDesired / motorConstant);
     return std::fmin(omega, maxRotVelocity);
+}
+
+// Keep an overload for callers that intentionally use the firmware defaults.
+static inline float PWM2OMEGA(uint16_t pwm, float motorConstant,
+                              float maxRotVelocity) {
+    return PWM2OMEGA(pwm, motorConstant, maxRotVelocity, kPwmToThrustA,
+                     kPwmToThrustB);
 }
 
 // Sensor type (first byte of crtp packet)

@@ -45,7 +45,7 @@ class ImuRateGenerationTest(unittest.TestCase):
         assert imu is not None
         return float(imu.text or "nan")
 
-    def motor_model_parameters(self, sdf: str) -> tuple[float, float]:
+    def motor_model_parameters(self, sdf: str) -> tuple[float, float, float, float]:
         root = ET.fromstring(sdf)
         rotor_plugins = root.findall(
             ".//plugin[@name='gz::sim::systems::MulticopterMotorModel']"
@@ -67,6 +67,8 @@ class ImuRateGenerationTest(unittest.TestCase):
         return (
             float(interface.findtext("motorConstant", "nan")),
             float(interface.findtext("maxRotVelocity", "nan")),
+            float(interface.findtext("pwmToThrustA", "nan")),
+            float(interface.findtext("pwmToThrustB", "nan")),
         )
 
     def test_both_models_default_to_one_kilohertz(self) -> None:
@@ -83,8 +85,13 @@ class ImuRateGenerationTest(unittest.TestCase):
 
     def test_pwm_converter_uses_the_selected_gazebo_motor_model(self) -> None:
         expected_parameters = {
-            "crazyflie": (1.7965e-8, 3052.0),
-            "crazyflie_thrust_upgrade": (2.3375e-8, 2797.0),
+            "crazyflie": (1.7965e-8, 3052.0, 0.091492681, 0.067673604),
+            "crazyflie_thrust_upgrade": (
+                2.3375e-8,
+                2797.0,
+                0.091492681,
+                0.067673604,
+            ),
         }
         for model, expected in expected_parameters.items():
             with self.subTest(model=model):
@@ -100,6 +107,7 @@ class ImuRateGenerationTest(unittest.TestCase):
                     (
                         float(rotor.findtext("motorConstant", "nan")),
                         float(rotor.findtext("maxRotVelocity", "nan")),
+                        *expected[2:],
                     ),
                 )
                 self.assertEqual(self.motor_model_parameters(sdf), expected)

@@ -85,9 +85,16 @@ void GzCrazyflieInterface::Configure(const gz::sim::Entity &_entity,
 		motor_constant_ = static_cast<float>(sdfClone->Get<double>("motorConstant"));
 	if (sdfClone->HasElement("maxRotVelocity"))
 		max_rot_velocity_ = static_cast<float>(sdfClone->Get<double>("maxRotVelocity"));
+	if (sdfClone->HasElement("pwmToThrustA"))
+		pwm_to_thrust_a_ = static_cast<float>(sdfClone->Get<double>("pwmToThrustA"));
+	if (sdfClone->HasElement("pwmToThrustB"))
+		pwm_to_thrust_b_ = static_cast<float>(sdfClone->Get<double>("pwmToThrustB"));
 	if (!std::isfinite(motor_constant_) || motor_constant_ <= 0.0f ||
-		!std::isfinite(max_rot_velocity_) || max_rot_velocity_ <= 0.0f) {
-		gzerr << "Crazyflie motorConstant and maxRotVelocity must be finite and positive"
+		!std::isfinite(max_rot_velocity_) || max_rot_velocity_ <= 0.0f ||
+		!std::isfinite(pwm_to_thrust_a_) || pwm_to_thrust_a_ < 0.0f ||
+		!std::isfinite(pwm_to_thrust_b_) || pwm_to_thrust_b_ < 0.0f ||
+		(pwm_to_thrust_a_ == 0.0f && pwm_to_thrust_b_ == 0.0f)) {
+		gzerr << "Crazyflie motor and PWM-to-thrust parameters are invalid"
 			  << std::endl;
 		return;
 	}
@@ -394,10 +401,14 @@ void GzCrazyflieInterface::initializeSubsAndPub() {
 
 void GzCrazyflieInterface::handleMotorsMessage(const uint8_t* data) {
 	crtpMotorsDataResponse* motorsData = (crtpMotorsDataResponse *) data;
-	const float m1 = PWM2OMEGA(motorsData->m1, motor_constant_, max_rot_velocity_);
-	const float m2 = PWM2OMEGA(motorsData->m2, motor_constant_, max_rot_velocity_);
-	const float m3 = PWM2OMEGA(motorsData->m3, motor_constant_, max_rot_velocity_);
-	const float m4 = PWM2OMEGA(motorsData->m4, motor_constant_, max_rot_velocity_);
+	const float m1 = PWM2OMEGA(motorsData->m1, motor_constant_, max_rot_velocity_,
+									 pwm_to_thrust_a_, pwm_to_thrust_b_);
+	const float m2 = PWM2OMEGA(motorsData->m2, motor_constant_, max_rot_velocity_,
+									 pwm_to_thrust_a_, pwm_to_thrust_b_);
+	const float m3 = PWM2OMEGA(motorsData->m3, motor_constant_, max_rot_velocity_,
+									 pwm_to_thrust_a_, pwm_to_thrust_b_);
+	const float m4 = PWM2OMEGA(motorsData->m4, motor_constant_, max_rot_velocity_,
+									 pwm_to_thrust_a_, pwm_to_thrust_b_);
 	{
 		std::unique_lock<std::mutex> mlock(motors_mutex);
 		m_motor_command_.m1 = m1;
