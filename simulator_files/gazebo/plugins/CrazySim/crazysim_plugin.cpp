@@ -42,7 +42,7 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	disableActuators_ = disableActuators != nullptr &&
 	                    std::string(disableActuators) == "1";
 	if (disableActuators_) {
-		gzmsg << "NCS_SITL actuator_bridge=disconnected" << std::endl;
+		std::cerr << "NCS_SITL actuator_bridge=disconnected" << std::endl;
 	}
 }
 
