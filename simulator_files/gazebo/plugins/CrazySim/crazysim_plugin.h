@@ -7,6 +7,8 @@
 #include <iostream>
 #include <mutex>
 #include <atomic>
+#include <chrono>
+#include <thread>
 #include <math.h>
 #include <deque>
 #include <stdio.h>
@@ -28,6 +30,7 @@
 #include <arpa/inet.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 /* Fast library for a reader writer queue */
 #include "blockingconcurrentqueue.h"
@@ -117,8 +120,8 @@ namespace crazyflie_interface
 			// server port and remote address for the crazyflies
 			int port;
 			int port_cfLib;
-			int fd;
-			int fd_cfLib;
+			int fd{-1};
+			int fd_cfLib{-1};
 			struct sockaddr_in myaddr;
 			struct sockaddr_in myaddr_CfLib;
 			struct sockaddr_in remaddr_rcv;
@@ -127,13 +130,13 @@ namespace crazyflie_interface
 			socklen_t addrlen_rcv_cfLib;
 			struct sockaddr_in remaddr;
 			socklen_t addrlen;
-			bool socketInit;
+			std::atomic<bool> socketInit{false};
 			struct sockaddr_in remaddr_cfLib;
 			socklen_t addrlen_cfLib;
 			std::atomic<bool> cfLibAddrInitialized_;
 
 			bool isInit;
-			bool isPluginOn;
+			std::atomic<bool> isPluginOn{true};
 
 			// Queue for exchanging messages between recv and sender threads
 			moodycamel::BlockingConcurrentQueue<crtpPacket_t> m_queueSendCfFirm;

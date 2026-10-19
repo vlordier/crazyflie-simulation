@@ -3,7 +3,9 @@
   */
 
 #include "crazysim_plugin.h"
+#include <cerrno>
 #include <future>
+#include <poll.h>
 
 #include <gz/plugin/Register.hh>
 GZ_ADD_PLUGIN(crazyflie_interface::GzCrazyflieInterface,
@@ -12,6 +14,17 @@ GZ_ADD_PLUGIN(crazyflie_interface::GzCrazyflieInterface,
 			  crazyflie_interface::GzCrazyflieInterface::ISystemPreUpdate,
 			  crazyflie_interface::GzCrazyflieInterface::ISystemPostUpdate)
 using namespace crazyflie_interface;
+
+namespace {
+bool waitForDatagram(int socketFd) {
+	struct pollfd descriptor = {socketFd, POLLIN, 0};
+	int result;
+	do {
+		result = poll(&descriptor, 1, 100);
+	} while (result < 0 && errno == EINTR);
+	return result > 0 && (descriptor.revents & POLLIN) != 0;
+}
+} // namespace
 
 GzCrazyflieInterface::GzCrazyflieInterface() :
 	namespace_(kDefaultNamespace),
@@ -25,15 +38,20 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 }
 
 GzCrazyflieInterface::~GzCrazyflieInterface() {
-	isPluginOn = false;
-	cfLibAddrInitialized_ = false;
-	socketInit = false;
+	isPluginOn.store(false, std::memory_order_release);
+	cfLibAddrInitialized_.store(false, std::memory_order_release);
+	socketInit.store(false, std::memory_order_release);
+	if (fd >= 0)
+		shutdown(fd, SHUT_RDWR);
+	if (fd_cfLib >= 0)
+		shutdown(fd_cfLib, SHUT_RDWR);
 	isInit = false;
-	
-	senderCfFirmwareThread.join();
-	senderCfLibThread.join();
-	receiverCfFirmwareThread.join();
-	receiverCfLibThread.join();
+	if (senderCfFirmwareThread.joinable()) senderCfFirmwareThread.join();
+	if (senderCfLibThread.joinable()) senderCfLibThread.join();
+	if (receiverCfFirmwareThread.joinable()) receiverCfFirmwareThread.join();
+	if (receiverCfLibThread.joinable()) receiverCfLibThread.join();
+	if (fd >= 0) close(fd);
+	if (fd_cfLib >= 0) close(fd_cfLib);
 }
 
 void GzCrazyflieInterface::Configure(const gz::sim::Entity &_entity,
@@ -213,6 +231,8 @@ void GzCrazyflieInterface::recvCfFirmwareThread() {
 	uint8_t buf[32];
 	while(isPluginOn)
 	{
+		if (!waitForDatagram(fd))
+			continue;
 		int len = recvfrom(fd, buf, sizeof(buf), 0, (struct sockaddr *) &remaddr_rcv, &addrlen_rcv);
 		if (len <= 0 )
 			continue;
@@ -242,10 +262,12 @@ void GzCrazyflieInterface::recvCfLibThread() {
 	uint8_t buf[32];
 	while(isPluginOn)
 	{
-		if (!socketInit)
+		if (!waitForDatagram(fd_cfLib))
 			continue;
 		int len = recvfrom(fd_cfLib, buf, sizeof(buf), 0, (struct sockaddr *) &remaddr_rcv_cfLib, &addrlen_rcv_cfLib);
 		if (len <= 0 )
+			continue;
+		if (!socketInit.load(std::memory_order_acquire))
 			continue;
 
 		// Update cflib address on every received packet (activity-based detection)
@@ -266,12 +288,17 @@ void GzCrazyflieInterface::recvCfLibThread() {
 
 void GzCrazyflieInterface::sendCfFirmwareThread() {
 	crtpPacket_t msgs[10];
-	std::pair<std::chrono::steady_clock::duration, crtpPacket_t> stamp_msg_pair;
 	while(isPluginOn){
-		if(!socketInit)
+		if(!socketInit.load(std::memory_order_acquire)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			continue;
+		}
 
-		size_t imu_msg_count = imu_queue.try_dequeue_bulk(msgs, 10);
+		// IMU is the high-rate clock for the SITL bridge. Block until it arrives
+		// instead of spinning continuously between 500 Hz sensor callbacks.
+		size_t imu_msg_count = 0;
+		if (imu_queue.wait_dequeue_timed(msgs[0], std::chrono::milliseconds(10)))
+			imu_msg_count = 1 + imu_queue.try_dequeue_bulk(msgs + 1, 9);
 		for (size_t i = 0; i != imu_msg_count; i++) {
 			sendCfFirmware(msgs[i].raw, msgs[i].size+1);
 		}
@@ -296,10 +323,17 @@ void GzCrazyflieInterface::sendCfFirmwareThread() {
 void GzCrazyflieInterface::sendCfLibThread() {
 	crtpPacket_t msgs[10];
 	while(isPluginOn){
-		if(!socketInit || !cfLibAddrInitialized_)
+		if(!socketInit.load(std::memory_order_acquire) ||
+		   !cfLibAddrInitialized_.load(std::memory_order_acquire)) {
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
 			continue;
+		}
 
-		size_t cflib_msg_count = firmware_to_cflib_queue.wait_dequeue_bulk(msgs, 10);
+		size_t cflib_msg_count = 0;
+		if (firmware_to_cflib_queue.wait_dequeue_timed(
+				msgs[0], std::chrono::milliseconds(10))) {
+			cflib_msg_count = 1 + firmware_to_cflib_queue.try_dequeue_bulk(msgs + 1, 9);
+		}
 		for (size_t i = 0; i != cflib_msg_count; i++) {
 			sendCfLib(msgs[i].raw, msgs[i].size+1);
 		}
