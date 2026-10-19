@@ -136,6 +136,7 @@ namespace crazyflie_interface
 			std::atomic<bool> cfLibAddrInitialized_;
 			std::mutex firmware_peer_mutex_;
 			bool traceMotorEnabled_{false};
+			bool disableActuators_{false};
 			std::atomic<bool> motorTraceLogged_{false};
 
 			bool isInit;

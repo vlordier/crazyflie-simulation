@@ -38,6 +38,12 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	isPluginOn(true){
 	const char* traceMotor = std::getenv("NCS_CRAZYSIM_TRACE_MOTOR");
 	traceMotorEnabled_ = traceMotor != nullptr && std::string(traceMotor) == "1";
+	const char* disableActuators = std::getenv("NCS_CRAZYSIM_DISABLE_ACTUATORS");
+	disableActuators_ = disableActuators != nullptr &&
+	                    std::string(disableActuators) == "1";
+	if (disableActuators_) {
+		gzmsg << "NCS_SITL actuator_bridge=disconnected" << std::endl;
+	}
 }
 
 GzCrazyflieInterface::~GzCrazyflieInterface() {
@@ -414,10 +420,10 @@ void GzCrazyflieInterface::recvCfLib(uint8_t* data , int len) {
 void GzCrazyflieInterface::writeMotors() {
 	m_motor_speed.clear_velocity();
 	motors_mutex.lock();
-	m_motor_speed.add_velocity(m_motor_command_.m1); // 0
-	m_motor_speed.add_velocity(m_motor_command_.m2); // 1
-	m_motor_speed.add_velocity(m_motor_command_.m3); // 2
-	m_motor_speed.add_velocity(m_motor_command_.m4); // 3
+	m_motor_speed.add_velocity(disableActuators_ ? 0.0f : m_motor_command_.m1); // 0
+	m_motor_speed.add_velocity(disableActuators_ ? 0.0f : m_motor_command_.m2); // 1
+	m_motor_speed.add_velocity(disableActuators_ ? 0.0f : m_motor_command_.m3); // 2
+	m_motor_speed.add_velocity(disableActuators_ ? 0.0f : m_motor_command_.m4); // 3
 	motors_mutex.unlock();
 	motor_velocity_reference_pub_.Publish(m_motor_speed);
 }
