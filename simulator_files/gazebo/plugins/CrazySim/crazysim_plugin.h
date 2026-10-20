@@ -7,12 +7,14 @@
 #include <iostream>
 #include <mutex>
 #include <atomic>
+#include <array>
 #include <chrono>
 #include <thread>
 #include <math.h>
 #include <deque>
 #include <stdio.h>
 #include <queue>
+#include <vector>
 
 #include <gz/sim/System.hh>
 #include <gz/sim/Model.hh>
@@ -111,6 +113,9 @@ namespace crazyflie_interface
 
 			// send and recv functions
 			bool sendCfFirmware(const uint8_t* data, uint32_t length);
+			void recordImuSend(const uint8_t* data, uint32_t length,
+			                   uint64_t hostMonotonicSendNs);
+			void dumpImuSendTrace();
 			bool sendCfLib(const uint8_t* data, uint32_t length);
 			void recvCfLib(uint8_t* data , int length);
 			
@@ -140,6 +145,16 @@ namespace crazyflie_interface
 			std::atomic<bool> motorTraceLogged_{false};
 			std::atomic<uint32_t> imuSequenceFallback_{0};
 			std::atomic<uint64_t> imuQueueEnqueueFailures_{0};
+			struct ImuSendTraceRecord {
+				uint32_t sequence;
+				uint64_t simulationTimeNs;
+				uint64_t hostMonotonicSendNs;
+				std::array<uint8_t, sizeof(imu_s)> packet;
+			};
+			static constexpr size_t kImuSendTraceCapacity = 32768;
+			std::string imuSendTracePath_;
+			std::vector<ImuSendTraceRecord> imuSendTraceRecords_;
+			uint64_t imuSendTraceCount_{0};
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};

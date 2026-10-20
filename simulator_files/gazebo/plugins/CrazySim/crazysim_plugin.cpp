@@ -3,10 +3,15 @@
   */
 
 #include "crazysim_plugin.h"
+#include <algorithm>
 #include <charconv>
 #include <cerrno>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <future>
+#include <iomanip>
+#include <iostream>
 #include <limits>
 #include <poll.h>
 
@@ -73,6 +78,24 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	const char* disableActuators = std::getenv("NCS_CRAZYSIM_DISABLE_ACTUATORS");
 	disableActuators_ = disableActuators != nullptr &&
 	                    std::string(disableActuators) == "1";
+	const char* imuTracePath = std::getenv("NCS_CRAZYSIM_IMU_TRACE_FILE");
+#ifdef NCS_SITL_IMU_PROVENANCE
+	if (imuTracePath != nullptr && imuTracePath[0] != '\0') {
+		std::error_code error;
+		if (std::filesystem::exists(imuTracePath, error) || error) {
+			std::cerr << "NCS_SITL refusing existing or inaccessible IMU send trace: "
+				  << imuTracePath << std::endl;
+		} else {
+			imuSendTracePath_ = imuTracePath;
+			imuSendTraceRecords_.resize(kImuSendTraceCapacity);
+		}
+	}
+#else
+	if (imuTracePath != nullptr && imuTracePath[0] != '\0') {
+		std::cerr << "NCS_SITL IMU send trace requires provenance-enabled build"
+			  << std::endl;
+	}
+#endif
 	if (disableActuators_) {
 		std::cerr << "NCS_SITL actuator_bridge=disconnected" << std::endl;
 	}
@@ -93,6 +116,7 @@ GzCrazyflieInterface::~GzCrazyflieInterface() {
 	if (receiverCfLibThread.joinable()) receiverCfLibThread.join();
 	if (fd >= 0) close(fd);
 	if (fd_cfLib >= 0) close(fd_cfLib);
+	dumpImuSendTrace();
 #ifdef NCS_SITL_IMU_PROVENANCE
 	std::cerr << "NCS_SITL imu_queue_enqueue_failures="
 	          << imuQueueEnqueueFailures_.load(std::memory_order_relaxed)
@@ -284,10 +308,72 @@ bool GzCrazyflieInterface::sendCfFirmware(const uint8_t* data , uint32_t length)
 		peer = remaddr;
 		peerLength = addrlen;
 	}
+	const auto sendTime = std::chrono::steady_clock::now().time_since_epoch();
+	const uint64_t hostMonotonicSendNs =
+		std::chrono::duration_cast<std::chrono::nanoseconds>(sendTime).count();
 	int transferred = sendto(fd, data, length, 0, (struct sockaddr *) &peer, peerLength);
 	if (transferred <= 0)
 		throw std::runtime_error(strerror(errno));
+	recordImuSend(data, static_cast<uint32_t>(transferred), hostMonotonicSendNs);
     return true;
+}
+
+void GzCrazyflieInterface::recordImuSend(const uint8_t* data, uint32_t length,
+										 uint64_t hostMonotonicSendNs) {
+#ifdef NCS_SITL_IMU_PROVENANCE
+	if (imuSendTracePath_.empty() || length != sizeof(imu_s) ||
+	    !(crtp(data[0]) == crtp(CRTP_PORT_SETPOINT_SIM, 0)) ||
+	    data[1] != SENSOR_GYRO_ACC_SIM) {
+		return;
+	}
+
+	ImuSendTraceRecord& record =
+		imuSendTraceRecords_[imuSendTraceCount_ % kImuSendTraceCapacity];
+	const uint8_t* metadata = data + sizeof(crtp) + sizeof(uint8_t) +
+							  2 * sizeof(Axis3i16);
+	record.sequence = decodeImuSequence(metadata);
+	record.simulationTimeNs = decodeImuSimTimeNs(metadata + 4);
+	record.hostMonotonicSendNs = hostMonotonicSendNs;
+	std::copy(data, data + length, record.packet.begin());
+	imuSendTraceCount_++;
+#else
+	(void)data;
+	(void)length;
+	(void)hostMonotonicSendNs;
+#endif
+}
+
+void GzCrazyflieInterface::dumpImuSendTrace() {
+	if (imuSendTracePath_.empty()) {
+		return;
+	}
+	std::ofstream output(imuSendTracePath_, std::ios::out | std::ios::trunc);
+	if (!output) {
+		std::cerr << "NCS_SITL failed to open IMU send trace: "
+			  << imuSendTracePath_ << std::endl;
+		return;
+	}
+	output << "sequence,simulation_time_ns,host_monotonic_send_ns,packet_hex\n";
+	const uint64_t recordCount =
+		std::min<uint64_t>(imuSendTraceCount_, imuSendTraceRecords_.size());
+	const uint64_t firstIndex =
+		imuSendTraceCount_ > imuSendTraceRecords_.size()
+			? imuSendTraceCount_ % imuSendTraceRecords_.size()
+			: 0;
+	for (uint64_t offset = 0; offset < recordCount; offset++) {
+		const ImuSendTraceRecord& record = imuSendTraceRecords_[
+			(firstIndex + offset) % imuSendTraceRecords_.size()];
+		output << record.sequence << ',' << record.simulationTimeNs << ','
+		       << record.hostMonotonicSendNs << ',' << std::hex
+		       << std::setfill('0');
+		for (uint8_t byte : record.packet) {
+			output << std::setw(2) << static_cast<unsigned int>(byte);
+		}
+		output << std::dec << '\n';
+	}
+	std::cerr << "NCS_SITL imu_send_trace_records=" << recordCount
+		  << " overwritten=" << (imuSendTraceCount_ - recordCount)
+		  << " path=" << imuSendTracePath_ << std::endl;
 }
 
 bool GzCrazyflieInterface::sendCfLib(const uint8_t* data , uint32_t length) {	
