@@ -101,8 +101,44 @@ struct imu_s {
 	uint8_t type;
 	union Axis3i16 acc;
 	union Axis3i16 gyro;
+#ifdef NCS_SITL_IMU_PROVENANCE
+  uint8_t sequenceLE[4];
+  uint8_t simTimeNsLE[8];
+  uint8_t sequenceIsGazeboHeader;
+#endif
 } __attribute__((packed));
 CHECKSIZE_RESPONSE(imu_s)
+static_assert(sizeof(imu_s) - 1 <= CRTP_MAX_DATA_SIZE,
+              "IMU CRTP payload is too large");
+
+#ifdef NCS_SITL_IMU_PROVENANCE
+static inline void encodeImuProvenance(uint8_t* destination,
+                                       uint32_t sequence,
+                                       uint64_t simTimeNs) {
+  for (unsigned int i = 0; i < 4; i++) {
+    destination[i] = static_cast<uint8_t>(sequence >> (8U * i));
+  }
+  for (unsigned int i = 0; i < 8; i++) {
+    destination[4 + i] = static_cast<uint8_t>(simTimeNs >> (8U * i));
+  }
+}
+
+static inline uint32_t decodeImuSequence(const uint8_t* source) {
+  uint32_t value = 0;
+  for (unsigned int i = 0; i < 4; i++) {
+    value |= static_cast<uint32_t>(source[i]) << (8U * i);
+  }
+  return value;
+}
+
+static inline uint64_t decodeImuSimTimeNs(const uint8_t* source) {
+  uint64_t value = 0;
+  for (unsigned int i = 0; i < 8; i++) {
+    value |= static_cast<uint64_t>(source[i]) << (8U * i);
+  }
+  return value;
+}
+#endif
 
 struct mag_s {
 	const crtp header;

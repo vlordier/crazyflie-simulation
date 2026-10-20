@@ -4,6 +4,8 @@ cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 
 project(crazysim_gz VERSION 1.1.0)
 
+option(CRAZYSIM_IMU_PROVENANCE "Attach Gazebo source time and sequence to SITL IMU packets" OFF)
+
 find_package(gz-plugin REQUIRED COMPONENTS register NAMES gz-plugin2)
 set(GZ_PLUGIN_VER ${gz-plugin_VERSION_MAJOR})
 
@@ -40,6 +42,9 @@ find_package(PkgConfig REQUIRED)
 #======================================= CrazySim PLUGIN ==========================================//
 add_library(gz_crazysim_plugin SHARED crazysim_plugin.cpp)
 set_property(TARGET gz_crazysim_plugin PROPERTY CXX_STANDARD 17)
+if(CRAZYSIM_IMU_PROVENANCE)
+  target_compile_definitions(gz_crazysim_plugin PRIVATE NCS_SITL_IMU_PROVENANCE)
+endif()
 target_link_libraries(gz_crazysim_plugin 
   PRIVATE
     gz-plugin${GZ_PLUGIN_VER}::gz-plugin${GZ_PLUGIN_VER}
@@ -54,3 +59,15 @@ install(TARGETS
   gz_crazysim_plugin
   LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
+
+include(CTest)
+if(BUILD_TESTING)
+  add_executable(test_imu_provenance test_imu_provenance.cpp)
+  target_compile_features(test_imu_provenance PRIVATE cxx_std_17)
+  target_compile_definitions(test_imu_provenance PRIVATE NCS_SITL_IMU_PROVENANCE)
+  add_test(NAME imu_provenance_wire_layout COMMAND test_imu_provenance)
+
+  add_executable(test_imu_legacy_packet_layout test_imu_legacy_packet_layout.cpp)
+  target_compile_features(test_imu_legacy_packet_layout PRIVATE cxx_std_17)
+  add_test(NAME imu_legacy_packet_layout COMMAND test_imu_legacy_packet_layout)
+endif()

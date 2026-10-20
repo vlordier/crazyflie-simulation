@@ -3,9 +3,11 @@
   */
 
 #include "crazysim_plugin.h"
+#include <charconv>
 #include <cerrno>
 #include <cstdlib>
 #include <future>
+#include <limits>
 #include <poll.h>
 
 #include <gz/plugin/Register.hh>
@@ -17,6 +19,36 @@ GZ_ADD_PLUGIN(crazyflie_interface::GzCrazyflieInterface,
 using namespace crazyflie_interface;
 
 namespace {
+uint32_t readHeaderSequence(const gz::msgs::Header& header, bool& found) {
+  for (int index = 0; index < header.data_size(); index++) {
+    const auto& item = header.data(index);
+    if (item.key() != "seq" || item.value_size() == 0) {
+      continue;
+    }
+
+    const std::string& value = item.value(0);
+    uint64_t parsed = 0;
+    const auto result = std::from_chars(value.data(), value.data() + value.size(), parsed);
+    if (result.ec == std::errc{} && result.ptr == value.data() + value.size() &&
+        parsed <= std::numeric_limits<uint32_t>::max()) {
+      found = true;
+      return static_cast<uint32_t>(parsed);
+    }
+  }
+
+  found = false;
+  return 0;
+}
+
+uint64_t readSimulationTimeNs(const gz::msgs::IMU& imu) {
+  const auto& stamp = imu.header().stamp();
+  if (stamp.sec() < 0 || stamp.nsec() < 0 || stamp.nsec() >= 1000000000) {
+    return 0;
+  }
+  return static_cast<uint64_t>(stamp.sec()) * 1000000000ULL +
+         static_cast<uint64_t>(stamp.nsec());
+}
+
 bool waitForDatagram(int socketFd) {
 	struct pollfd descriptor = {socketFd, POLLIN, 0};
 	int result;
@@ -61,6 +93,11 @@ GzCrazyflieInterface::~GzCrazyflieInterface() {
 	if (receiverCfLibThread.joinable()) receiverCfLibThread.join();
 	if (fd >= 0) close(fd);
 	if (fd_cfLib >= 0) close(fd_cfLib);
+#ifdef NCS_SITL_IMU_PROVENANCE
+	std::cerr << "NCS_SITL imu_queue_enqueue_failures="
+	          << imuQueueEnqueueFailures_.load(std::memory_order_relaxed)
+	          << std::endl;
+#endif
 }
 
 void GzCrazyflieInterface::Configure(const gz::sim::Entity &_entity,
@@ -167,6 +204,13 @@ void GzCrazyflieInterface::PostUpdate(const gz::sim::UpdateInfo &_info, const gz
 }
 
 void GzCrazyflieInterface::ImuCallback(const gz::msgs::IMU& imu_msg) {
+	#ifdef NCS_SITL_IMU_PROVENANCE
+	bool hasGazeboSequence = false;
+	uint32_t sequence = readHeaderSequence(imu_msg.header(), hasGazeboSequence);
+	if (!hasGazeboSequence) {
+		sequence = imuSequenceFallback_.fetch_add(1, std::memory_order_relaxed);
+	}
+	#endif
 	struct imu_s m_imu_info = {
 		.header = crtp(CRTP_PORT_SETPOINT_SIM, 0),
 		.type = SENSOR_GYRO_ACC_SIM,
@@ -177,10 +221,18 @@ void GzCrazyflieInterface::ImuCallback(const gz::msgs::IMU& imu_msg) {
 				 static_cast<int16_t>(imu_msg.angular_velocity().y()    	/ 	SENSORS_DEG_PER_LSB_CFG 	/ DEG_TO_RAD_CF),
 				 static_cast<int16_t>(imu_msg.angular_velocity().z()    	/	SENSORS_DEG_PER_LSB_CFG		/ DEG_TO_RAD_CF)}};
 
+	#ifdef NCS_SITL_IMU_PROVENANCE
+	encodeImuProvenance(m_imu_info.sequenceLE, sequence,
+	                    readSimulationTimeNs(imu_msg));
+	m_imu_info.sequenceIsGazeboHeader = hasGazeboSequence ? 1U : 0U;
+	#endif
+
 	crtpPacket_t msg;
-	msg.size = sizeof(m_imu_info);
+	msg.size = sizeof(m_imu_info) - 1;
 	memcpy(msg.raw, (const uint8_t*) &m_imu_info , sizeof(m_imu_info));
-	imu_queue.enqueue(msg);
+	if (!imu_queue.enqueue(msg)) {
+		imuQueueEnqueueFailures_.fetch_add(1, std::memory_order_relaxed);
+	}
 }
 
 void GzCrazyflieInterface::BarometerCallback(const gz::msgs::FluidPressure& air_pressure_msg) {
@@ -197,7 +249,7 @@ void GzCrazyflieInterface::BarometerCallback(const gz::msgs::FluidPressure& air_
 	};
 
 	crtpPacket_t msg;
-	msg.size = sizeof(m_baro_info);
+	msg.size = sizeof(m_baro_info) - 1;
 	memcpy(msg.raw, (const uint8_t*) &m_baro_info , sizeof(m_baro_info));
 	barometer_queue.enqueue(msg);
 }
@@ -217,7 +269,7 @@ void GzCrazyflieInterface::OdomCallback(const gz::msgs::Odometry& odom_msg) {
 	}; 
 	
 	crtpPacket_t msg;
-	msg.size = sizeof(ext_pose);
+	msg.size = sizeof(ext_pose) - 1;
 	memcpy(msg.raw, (const uint8_t*) &ext_pose , sizeof(ext_pose));
 	odom_queue.enqueue(msg);
 }

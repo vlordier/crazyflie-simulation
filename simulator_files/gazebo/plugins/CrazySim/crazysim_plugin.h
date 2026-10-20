@@ -138,6 +138,8 @@ namespace crazyflie_interface
 			bool traceMotorEnabled_{false};
 			bool disableActuators_{false};
 			std::atomic<bool> motorTraceLogged_{false};
+			std::atomic<uint32_t> imuSequenceFallback_{0};
+			std::atomic<uint64_t> imuQueueEnqueueFailures_{0};
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};
