@@ -141,6 +141,7 @@ namespace crazyflie_interface
 			std::atomic<bool> cfLibAddrInitialized_;
 			std::mutex firmware_peer_mutex_;
 			bool traceMotorEnabled_{false};
+			bool traceMotorAllEnabled_{false};
 			bool disableActuators_{false};
 			std::atomic<bool> motorTraceLogged_{false};
 			std::atomic<uint32_t> imuSequenceFallback_{0};
@@ -155,6 +156,17 @@ namespace crazyflie_interface
 			std::string imuSendTracePath_;
 			std::vector<ImuSendTraceRecord> imuSendTraceRecords_;
 			uint64_t imuSendTraceCount_{0};
+			struct MotorTraceRecord {
+				uint64_t monotonicTimeNs;
+				std::array<uint8_t, 9> packet;
+				std::array<uint16_t, 4> ratios;
+				std::array<float, 4> omegaRadPerSecond;
+			};
+			static constexpr size_t kMotorTraceCapacity = 32768;
+			std::string motorTracePath_;
+			std::vector<MotorTraceRecord> motorTraceRecords_;
+			uint64_t motorTraceDropped_{0};
+			void dumpMotorTrace();
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};

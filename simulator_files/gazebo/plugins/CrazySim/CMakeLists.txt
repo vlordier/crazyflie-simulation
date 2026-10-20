@@ -5,6 +5,7 @@ cmake_minimum_required(VERSION 3.11.0 FATAL_ERROR)
 project(crazysim_gz VERSION 1.1.0)
 
 option(CRAZYSIM_IMU_PROVENANCE "Attach Gazebo source time and sequence to SITL IMU packets" OFF)
+option(CRAZYSIM_MOTOR_TRACE "Capture bounded firmware motor-packet trace" ON)
 
 find_package(gz-plugin REQUIRED COMPONENTS register NAMES gz-plugin2)
 set(GZ_PLUGIN_VER ${gz-plugin_VERSION_MAJOR})
@@ -44,6 +45,9 @@ add_library(gz_crazysim_plugin SHARED crazysim_plugin.cpp)
 set_property(TARGET gz_crazysim_plugin PROPERTY CXX_STANDARD 17)
 if(CRAZYSIM_IMU_PROVENANCE)
   target_compile_definitions(gz_crazysim_plugin PRIVATE NCS_SITL_IMU_PROVENANCE)
+endif()
+if(CRAZYSIM_MOTOR_TRACE)
+  target_compile_definitions(gz_crazysim_plugin PRIVATE NCS_SITL_MOTOR_TRACE)
 endif()
 target_link_libraries(gz_crazysim_plugin 
   PRIVATE

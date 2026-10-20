@@ -36,3 +36,15 @@ or sender thread. The CSV records the Gazebo sequence and simulation timestamp,
 the host monotonic time immediately before `sendto`, and the exact CRTP packet
 bytes. It refuses to overwrite an existing path. A full ring retains the most
 recent records and reports the overwritten count.
+
+### Bounded firmware motor-packet trace
+
+To capture packets received from the firmware, set
+`NCS_CRAZYSIM_TRACE_MOTOR=all` and `NCS_CRAZYSIM_TRACE_MOTOR_PATH` to a new
+output file before starting Gazebo. The plugin stores up to 32,768 records in
+memory and writes JSONL on shutdown. Each record includes the host monotonic
+arrival time, all nine received packet bytes, four decoded PWM ratios, and the
+four converted motor speeds in rad/s. Additional packets after capacity are
+counted and dropped. This mode avoids per-packet console output, but still adds
+bounded memory and receive-thread work; compare it with a tracing-disabled
+run before using the measurements for timing claims.
