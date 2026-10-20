@@ -57,6 +57,22 @@ bool waitForDatagram(int socketFd) {
 	} while (result < 0 && errno == EINTR);
 	return result > 0 && (descriptor.revents & POLLIN) != 0;
 }
+
+uint64_t positiveEnvironmentInteger(const char* name, uint64_t fallback) {
+	const char* value = std::getenv(name);
+	if (value == nullptr || *value == '\0') {
+		return fallback;
+	}
+	uint64_t parsed = 0;
+	const char* end = value + std::char_traits<char>::length(value);
+	const auto result = std::from_chars(value, end, parsed);
+	if (result.ec != std::errc{} || result.ptr != end || parsed == 0) {
+		std::cerr << "NCS_SITL invalid " << name << "; using " << fallback
+		          << std::endl;
+		return fallback;
+	}
+	return parsed;
+}
 } // namespace
 
 GzCrazyflieInterface::GzCrazyflieInterface() :
@@ -75,6 +91,22 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	                    std::string(disableActuators) == "1";
 	if (disableActuators_) {
 		std::cerr << "NCS_SITL actuator_bridge=disconnected" << std::endl;
+	}
+	const char* tracePath = std::getenv("NCS_CRAZYSIM_TRACE_MOTOR_FILE");
+	if (tracePath != nullptr && *tracePath != '\0') {
+		motorTraceStride_ = positiveEnvironmentInteger(
+			"NCS_CRAZYSIM_TRACE_MOTOR_STRIDE", motorTraceStride_);
+		motorTraceLimit_ = positiveEnvironmentInteger(
+			"NCS_CRAZYSIM_TRACE_MOTOR_LIMIT", motorTraceLimit_);
+		motorTraceFile_.open(tracePath, std::ios::out | std::ios::trunc);
+		if (motorTraceFile_.is_open()) {
+			std::cerr << "NCS_SITL motor_trace_file=" << tracePath
+			          << " stride=" << motorTraceStride_
+			          << " limit=" << motorTraceLimit_ << std::endl;
+		} else {
+			std::cerr << "NCS_SITL motor_trace_open_failed path=" << tracePath
+			          << std::endl;
+		}
 	}
 }
 
@@ -446,6 +478,27 @@ void GzCrazyflieInterface::handleMotorsMessage(const uint8_t* data) {
 		m_motor_command_.m2 = m2;
 		m_motor_command_.m3 = m3;
 		m_motor_command_.m4 = m4;
+	}
+	++motorTraceMessageCount_;
+	if (motorTraceFile_.is_open() && motorTraceRecordCount_ < motorTraceLimit_ &&
+	    motorTraceMessageCount_ % motorTraceStride_ == 0) {
+		const auto* bytes = reinterpret_cast<const uint8_t*>(motorsData);
+		const auto monotonicNs = std::chrono::duration_cast<std::chrono::nanoseconds>(
+			std::chrono::steady_clock::now().time_since_epoch()).count();
+		motorTraceFile_ << "{\"record\":" << motorTraceRecordCount_
+		                << ",\"monotonic_time_ns\":" << monotonicNs
+		                << ",\"packet_bytes\":[";
+		for (size_t index = 0; index < sizeof(crtpMotorsDataResponse); ++index) {
+			if (index != 0) motorTraceFile_ << ',';
+			motorTraceFile_ << static_cast<unsigned int>(bytes[index]);
+		}
+		motorTraceFile_ << "],\"motor_ratio\":["
+		                << motorsData->m1 << ',' << motorsData->m2 << ','
+		                << motorsData->m3 << ',' << motorsData->m4
+		                << "],\"omega_rad_s\":[" << m1 << ',' << m2 << ','
+		                << m3 << ',' << m4 << "]}\n";
+		motorTraceFile_.flush();
+		++motorTraceRecordCount_;
 	}
 
 	if (traceMotorEnabled_ &&
