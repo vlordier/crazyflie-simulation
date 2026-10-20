@@ -5,6 +5,9 @@
 #define CRAZYFLIE_INTERFACE_HH_
 
 #include <iostream>
+#include <array>
+#include <cstdint>
+#include <fstream>
 #include <mutex>
 #include <atomic>
 #include <chrono>
@@ -13,6 +16,7 @@
 #include <deque>
 #include <stdio.h>
 #include <queue>
+#include <vector>
 
 #include <gz/sim/System.hh>
 #include <gz/sim/Model.hh>
@@ -136,8 +140,20 @@ namespace crazyflie_interface
 			std::atomic<bool> cfLibAddrInitialized_;
 			std::mutex firmware_peer_mutex_;
 			bool traceMotorEnabled_{false};
+			bool traceMotorAllEnabled_{false};
 			bool disableActuators_{false};
 			std::atomic<bool> motorTraceLogged_{false};
+			struct MotorTraceRecord {
+				uint64_t monotonicTimeNs;
+				std::array<uint8_t, 9> packet;
+				std::array<uint16_t, 4> ratios;
+				std::array<float, 4> omegaRadPerSecond;
+			};
+			static constexpr size_t kMotorTraceCapacity = 32768;
+			std::string motorTracePath_;
+			std::vector<MotorTraceRecord> motorTraceRecords_;
+			uint64_t motorTraceDropped_{0};
+			void dumpMotorTrace();
 
 			bool isInit;
 			std::atomic<bool> isPluginOn{true};

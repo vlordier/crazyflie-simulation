@@ -25,3 +25,15 @@ keeps the sensor cadence aligned when the firmware is built at 500 Hz; builds
 without that cache setting retain the 1000 Hz default. Set
 `NCS_CRAZYSIM_IMU_RATE=500` or `1000` only to override the detected rate
 deliberately. The generator rejects rates other than those supported values.
+
+### Bounded firmware motor-packet trace
+
+To capture packets received from the firmware, set
+`NCS_CRAZYSIM_TRACE_MOTOR=all` and `NCS_CRAZYSIM_TRACE_MOTOR_PATH` to a new
+output file before starting Gazebo. The plugin stores up to 32,768 records in
+memory and writes JSONL on shutdown. Each record includes the host monotonic
+arrival time, all nine received packet bytes, four decoded PWM ratios, and the
+four converted motor speeds in rad/s. Additional packets after capacity are
+counted and dropped. This mode avoids per-packet console output, but still adds
+bounded memory and receive-thread work; compare it with a tracing-disabled
+run before using the measurements for timing claims.

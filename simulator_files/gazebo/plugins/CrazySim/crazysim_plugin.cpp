@@ -3,9 +3,11 @@
   */
 
 #include "crazysim_plugin.h"
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <future>
+#include <iomanip>
 #include <poll.h>
 
 #include <gz/plugin/Register.hh>
@@ -38,6 +40,20 @@ GzCrazyflieInterface::GzCrazyflieInterface() :
 	isPluginOn(true){
 	const char* traceMotor = std::getenv("NCS_CRAZYSIM_TRACE_MOTOR");
 	traceMotorEnabled_ = traceMotor != nullptr && std::string(traceMotor) == "1";
+	traceMotorAllEnabled_ = traceMotor != nullptr && std::string(traceMotor) == "all";
+	if (traceMotorAllEnabled_) {
+		const char* tracePath = std::getenv("NCS_CRAZYSIM_TRACE_MOTOR_PATH");
+		if (tracePath == nullptr || tracePath[0] == '\0') {
+			std::cerr << "NCS_SITL motor_trace=all requires NCS_CRAZYSIM_TRACE_MOTOR_PATH"
+			          << std::endl;
+			traceMotorAllEnabled_ = false;
+		} else {
+			motorTracePath_ = tracePath;
+			motorTraceRecords_.reserve(kMotorTraceCapacity);
+			std::cerr << "NCS_SITL motor_trace=all capacity=" << kMotorTraceCapacity
+			          << " path=" << motorTracePath_ << std::endl;
+		}
+	}
 	const char* disableActuators = std::getenv("NCS_CRAZYSIM_DISABLE_ACTUATORS");
 	disableActuators_ = disableActuators != nullptr &&
 	                    std::string(disableActuators) == "1";
@@ -61,6 +77,42 @@ GzCrazyflieInterface::~GzCrazyflieInterface() {
 	if (receiverCfLibThread.joinable()) receiverCfLibThread.join();
 	if (fd >= 0) close(fd);
 	if (fd_cfLib >= 0) close(fd_cfLib);
+	dumpMotorTrace();
+}
+
+void GzCrazyflieInterface::dumpMotorTrace() {
+	if (!traceMotorAllEnabled_) return;
+	std::ofstream output(motorTracePath_);
+	if (!output) {
+		std::cerr << "NCS_SITL motor_trace=all failed to open " << motorTracePath_
+		          << std::endl;
+		return;
+	}
+	output << std::setprecision(9);
+	for (size_t sequence = 0; sequence < motorTraceRecords_.size(); sequence++) {
+		const auto& record = motorTraceRecords_[sequence];
+		output << "{\"capture_monotonic_time_ns\":" << record.monotonicTimeNs
+		       << ",\"sequence\":" << sequence << ",\"packet_bytes\":[";
+		for (size_t index = 0; index < record.packet.size(); index++) {
+			if (index != 0) output << ',';
+			output << static_cast<unsigned>(record.packet[index]);
+		}
+		output << "],\"motor_ratio\":[";
+		for (size_t index = 0; index < record.ratios.size(); index++) {
+			if (index != 0) output << ',';
+			output << record.ratios[index];
+		}
+		output << "],\"omega_rad_s\":[";
+		for (size_t index = 0; index < record.omegaRadPerSecond.size(); index++) {
+			if (index != 0) output << ',';
+			output << record.omegaRadPerSecond[index];
+		}
+		output << "]}\n";
+	}
+	output.close();
+	std::cerr << "NCS_SITL motor_trace=all records=" << motorTraceRecords_.size()
+	          << " dropped=" << motorTraceDropped_ << " path=" << motorTracePath_
+	          << std::endl;
 }
 
 void GzCrazyflieInterface::Configure(const gz::sim::Entity &_entity,
@@ -394,6 +446,20 @@ void GzCrazyflieInterface::handleMotorsMessage(const uint8_t* data) {
 		m_motor_command_.m2 = m2;
 		m_motor_command_.m3 = m3;
 		m_motor_command_.m4 = m4;
+	}
+	if (traceMotorAllEnabled_) {
+		if (motorTraceRecords_.size() < kMotorTraceCapacity) {
+			auto& record = motorTraceRecords_.emplace_back();
+			record.monotonicTimeNs = static_cast<uint64_t>(
+				std::chrono::duration_cast<std::chrono::nanoseconds>(
+					std::chrono::steady_clock::now().time_since_epoch()).count());
+			std::copy(data, data + record.packet.size(), record.packet.begin());
+			record.ratios = {motorsData->m1, motorsData->m2,
+			                 motorsData->m3, motorsData->m4};
+			record.omegaRadPerSecond = {m1, m2, m3, m4};
+		} else {
+			motorTraceDropped_++;
+		}
 	}
 
 	if (traceMotorEnabled_ &&
