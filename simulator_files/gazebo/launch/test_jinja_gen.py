@@ -57,6 +57,28 @@ class ImuRateGenerationTest(unittest.TestCase):
                     self.imu_rate(self.render(model, "--imu-rate", "500")), 500.0
                 )
 
+    def test_both_models_generate_four_eight_by_eight_nano_tof_sensors(self) -> None:
+        for model in ("crazyflie", "crazyflie_thrust_upgrade"):
+            with self.subTest(model=model):
+                root = ET.fromstring(self.render(model, "--cf_id", "3"))
+                sensors = root.findall(".//sensor[@type='gpu_lidar']")
+                self.assertEqual(len(sensors), 4)
+                for sensor_id, sensor in enumerate(sensors):
+                    self.assertEqual(sensor.get("name"), f"nano_tof_{sensor_id}")
+                    topic = sensor.findtext("topic")
+                    self.assertEqual(topic, f"/cf_3/tof/{sensor_id}")
+                    self.assertEqual(
+                        sensor.findtext("ray/scan/horizontal/samples"), "8"
+                    )
+                    self.assertEqual(
+                        sensor.findtext("ray/scan/vertical/samples"), "8"
+                    )
+                    self.assertEqual(sensor.findtext("update_rate"), "15")
+                    pose = sensor.findtext("pose")
+                    self.assertIsNotNone(pose)
+                    assert pose is not None
+                    self.assertEqual(len(pose.split()), 6)
+
     def test_rejects_rates_not_supported_by_the_sitl_firmware(self) -> None:
         with tempfile.TemporaryDirectory():
             template = GAZEBO_DIR / "models" / "crazyflie" / "model.sdf.jinja"
